@@ -105,11 +105,56 @@ class WandbLogger:
             import matplotlib.pyplot as plt
             from matplotlib import cm
             
+            # Unwrap FSDP if needed
+            actual_model = model
+            if hasattr(model, '_fsdp_wrapped_module'):
+                actual_model = model._fsdp_wrapped_module
+            elif hasattr(model, 'module'):
+                actual_model = model.module
+            
+            # Store attention weights using hook
+            attention_weights = []
+            def hook_fn(module, input, output):
+                # Capture attention weights from the last block
+                if hasattr(module, 'attn_drop') or 'attn' in str(type(module)).lower():
+                    if isinstance(output, tuple) and len(output) > 1:
+                        attention_weights.append(output[1])  # Attention weights
+            
+            # Register hook on last attention block
+            hooks = []
+            if hasattr(actual_model, 'blocks') and len(actual_model.blocks) > 0:
+                last_block = actual_model.blocks[-1]
+                if hasattr(last_block, 'attn'):
+                    hook = last_block.attn.register_forward_hook(hook_fn)
+                    hooks.append(hook)
+            
             model.eval()
             with torch.no_grad():
-                # Get attention maps from last layer
-                # This requires model to have attention export capability
-                outputs = model.get_last_selfattention(images[:4])  # First 4 images
+                # Forward pass to trigger hook
+                _ = actual_model.forward_features(images[:4])
+                
+                # Remove hooks
+                for hook in hooks:
+                    hook.remove()
+                
+                # If we didn't capture attention, just visualize input images
+                if not attention_weights:
+                    logger.info("Logging input images (attention extraction not available)")
+                    fig, axes = plt.subplots(1, 4, figsize=(16, 4))
+                    for idx in range(min(4, images.shape[0])):
+                        img = images[idx].cpu().numpy().transpose(1, 2, 0)
+                        img = (img - img.min()) / (img.max() - img.min() + 1e-8)
+                        axes[idx].imshow(img)
+                        axes[idx].set_title(f'Input {idx}')
+                        axes[idx].axis('off')
+                    plt.tight_layout()
+                    wandb.log({"input_images": wandb.Image(fig)}, step=step)
+                    plt.close()
+                    model.train()
+                    return
+                
+                # Use captured attention
+                outputs = attention_weights[0]
                 
                 # Visualize
                 fig, axes = plt.subplots(2, 4, figsize=(16, 8))

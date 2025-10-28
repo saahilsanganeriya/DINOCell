@@ -10,7 +10,7 @@ from typing import Any, Callable, List, Optional, TypeVar
 import torch
 from torch.utils.data import Sampler
 
-from .datasets import ADE20K, CocoCaptions, ImageNet, ImageNet22k, NYU, JUMPCellPainting, JUMPCellPaintingMultiView
+from .datasets import ADE20K, CocoCaptions, ImageNet, ImageNet22k, NYU, JUMPCellPainting, JUMPCellPaintingMultiView, JUMPSimpleLocal
 
 # S3 streaming (optional)
 try:
@@ -85,6 +85,9 @@ def _parse_dataset_str(dataset_str: str):
     elif name == "JUMPCellPaintingMultiView":
         class_ = JUMPCellPaintingMultiView
         # Multi-view mode: returns list of channels
+    elif name == "JUMPSimpleLocal":
+        class_ = JUMPSimpleLocal
+        # Simple local dataset for testing
     elif name == "JUMPS3" or name == "JUMPS3MultiView":
         if JUMPS3Dataset is None:
             raise ImportError("JUMPS3 dataset requires: pip install boto3 smart-open")

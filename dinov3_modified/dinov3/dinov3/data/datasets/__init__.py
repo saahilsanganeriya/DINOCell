@@ -10,6 +10,7 @@ from .image_net_22k import ImageNet22k
 from .nyu import NYU
 from .jump_cellpainting import JUMPCellPainting
 from .jump_cellpainting_multiview import JUMPCellPaintingMultiView
+from .jump_simple_local import JUMPSimpleLocal
 
 # S3 streaming version (optional, requires boto3)
 try:

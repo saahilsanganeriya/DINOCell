@@ -64,7 +64,7 @@ gram:
 
 # Training configuration - S3 STREAMING
 train:
-  batch_size_per_gpu: 40  # Slightly lower due to S3 latency
+  batch_size_per_gpu: 80  # Increased to better utilize A100-80GB (was 40, only using 33GB/82GB)
   dataset_path: JUMPS3MultiView:bucket=cellpainting-gallery:prefix=cpg0000-jump-pilot/source_4/images
   output_dir: ../../DINOCell/checkpoints/dinov3_vits8_jump_s3_multiview
   saveckp_freq: 20
@@ -188,9 +188,9 @@ wandb:
   project: dinocell-pretraining  # Wandb project name
   name: vits8_jump_multiview_s3  # Run name
   entity: null  # Your wandb username (or null for default)
-  log_interval: 100  # Log every N iterations
+  log_interval: 1  # Log every iteration (so losses appear as charts in wandb immediately)
   log_attention_maps: true  # Log attention visualizations
-  attention_log_interval: 1000  # Log attention every N iterations
+  attention_log_interval: 100  # Log attention every 100 iterations (to avoid too many images)
   save_checkpoints_to_wandb: false  # Upload checkpoints (large files)
 
 evaluation:

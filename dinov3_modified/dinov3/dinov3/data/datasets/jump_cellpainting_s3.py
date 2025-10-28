@@ -214,13 +214,20 @@ class JUMPS3Dataset(ExtendedVisionDataset):
         if not S3_AVAILABLE:
             raise ImportError("boto3 and smart-open required for S3 streaming. Install with: pip install boto3 smart-open")
         
+        # Create a simple decoder for dummy targets
+        class DummyDecoder:
+            def __init__(self, data):
+                self.data = data
+            def decode(self):
+                return self.data
+        
         super().__init__(
             root=None,
             transforms=transforms,
             transform=transform,
             target_transform=target_transform,
             image_decoder=JUMPS3Decoder,
-            target_decoder=lambda x: x
+            target_decoder=DummyDecoder
         )
         
         self.bucket = bucket
