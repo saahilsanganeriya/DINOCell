@@ -40,7 +40,6 @@ ENV/
 # Data and checkpoints
 checkpoints/*.pt
 checkpoints/*.pth
-datasets/
 *.npy
 *.tif
 *.tiff
