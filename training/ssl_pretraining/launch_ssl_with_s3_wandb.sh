@@ -59,12 +59,13 @@ done
 DINOV3_ROOT="../../dinov3_modified/dinov3"
 OUTPUT_DIR="./output"
 
-# Select config based on S3 usage
+# Select config based on S3 usage (absolute paths)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ "$USE_S3" = true ]; then
-    CONFIG_FILE="./configs/dinov3_vits8_jump_s3_multiview.yaml"
+    CONFIG_FILE="$SCRIPT_DIR/configs/dinov3_vits8_jump_s3_multiview.yaml"
     DATASET_INFO="S3 Streaming (no local storage)"
 else
-    CONFIG_FILE="./configs/dinov3_vits8_jump_multiview.yaml"
+    CONFIG_FILE="$SCRIPT_DIR/configs/dinov3_vits8_jump_multiview.yaml"
     DATASET_INFO="Local files"
 fi
 
@@ -126,11 +127,21 @@ if [ "$USE_WANDB" = true ]; then
     }
     echo "✅ Wandb installed"
     
+    # Configure wandb to use main filesystem for cache/logs
+    export WANDB_DIR=/home/shadeform/wandb_cache
+    export WANDB_CACHE_DIR=/home/shadeform/wandb_cache
+    export WANDB_DATA_DIR=/home/shadeform/wandb_cache
+    mkdir -p $WANDB_DIR
+    
+    # Set wandb to online mode
+    wandb online 2>/dev/null
+    
     # Check if logged in
     wandb login --relogin 2>/dev/null || {
         echo "⚠️  Wandb not logged in. Logging in now..."
         wandb login
     }
+    echo "✅ Wandb configured (cache: $WANDB_DIR)"
 fi
 
 # Download checkpoint if needed
@@ -178,7 +189,10 @@ fi
 
 # Navigate to dinov3
 cd $DINOV3_ROOT
-mkdir -p "$OUTPUT_DIR"
+
+# Create output directory on main filesystem
+OUTPUT_DIR_FULL="/home/shadeform/DINOCell/training/ssl_pretraining/output"
+mkdir -p "$OUTPUT_DIR_FULL"
 
 # Build wandb override args
 WANDB_ARGS=""
@@ -211,10 +225,11 @@ fi
 echo "========================================================================"
 echo ""
 
-# Run training
-PYTHONPATH=. python dinov3/train/train.py \
+# Run training with environment variables for wandb
+PYTHONPATH=. WANDB_DIR=$WANDB_DIR WANDB_CACHE_DIR=$WANDB_CACHE_DIR WANDB_DATA_DIR=$WANDB_DATA_DIR \
+python dinov3/train/train.py \
     --config-file "$CONFIG_FILE" \
-    --output-dir "$OUTPUT_DIR" \
+    --output-dir "$OUTPUT_DIR_FULL" \
     $WANDB_ARGS \
     $EXTRA_ARGS
 

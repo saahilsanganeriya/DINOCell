@@ -31,7 +31,13 @@ class ExtendedVisionDataset(VisionDataset):
     def __getitem__(self, index: int) -> Tuple[Any, Any]:
         try:
             image_data = self.get_image_data(index)
-            image = self.image_decoder(image_data).decode()
+            # Handle different decoder types
+            if isinstance(image_data, dict):
+                # S3 decoder needs kwargs
+                image = self.image_decoder(**image_data).decode()
+            else:
+                # Standard decoder
+                image = self.image_decoder(image_data).decode()
         except Exception as e:
             raise RuntimeError(f"can not read image for sample {index}") from e
         target = self.get_target(index)

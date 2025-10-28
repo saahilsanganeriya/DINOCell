@@ -36,6 +36,7 @@ from dinov3.data import (
     CombinedDataLoader,
 )
 from dinov3.logging import MetricLogger, setup_logging
+from dinov3.logging.wandb_logger import WandbLogger
 from dinov3.train.cosine_lr_scheduler import CosineScheduler, linear_warmup_cosine_decay
 from dinov3.train.multidist_meta_arch import MultiDistillationMetaArch
 from dinov3.train.ssl_meta_arch import SSLMetaArch
@@ -431,6 +432,16 @@ def do_train(cfg, model, resume=False):
     logger.info("Starting training from iteration %d", start_iter)
     metrics_file = os.path.join(cfg.train.output_dir, "training_metrics.json")
     metric_logger = MetricLogger(delimiter="  ", output_file=metrics_file)
+    
+    # Wandb logging
+    wandb_logger = None
+    if cfg.get('wandb', {}).get('enabled', False):
+        try:
+            wandb_logger = WandbLogger(cfg, enabled=True)
+            logger.info("Wandb logger initialized successfully")
+        except Exception as e:
+            logger.warning(f"Failed to initialize wandb logger: {e}")
+    
     # Manual garbage collection
     gc.disable()
     gc.collect()
@@ -549,6 +560,23 @@ def do_train(cfg, model, resume=False):
         metric_logger.update(mom=mom)
         metric_logger.update(last_layer_lr=last_layer_lr)
         metric_logger.update(total_loss=total_loss, **metrics_dict)
+        
+        # Log to wandb
+        if wandb_logger is not None:
+            wandb_metrics = {k: v.item() for k, v in metrics_dict.items()}
+            wandb_metrics.update({'lr': lr, 'wd': wd, 'teacher_temp': teacher_temp, 'total_loss': total_loss.item()})
+            wandb_logger.log_metrics(wandb_metrics, step=it)
+            
+            # Log attention maps periodically
+            if wandb_logger.log_attention and it > 0 and it % wandb_logger.attention_interval == 0:
+                try:
+                    # Get a sample from the current batch
+                    if 'collated_global_crops' in data:
+                        sample_images = data['collated_global_crops'][:4]  # First 4 images
+                        wandb_logger.log_attention_maps(model.student.backbone, sample_images, step=it)
+                        logger.info(f"Logged attention maps to wandb at iteration {it}")
+                except Exception as e:
+                    logger.warning(f"Failed to log attention maps at iteration {it}: {e}")
 
         # Submit evaluation jobs
         if (

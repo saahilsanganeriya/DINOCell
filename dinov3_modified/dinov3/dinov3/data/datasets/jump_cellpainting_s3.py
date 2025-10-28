@@ -322,7 +322,7 @@ class JUMPS3Dataset(ExtendedVisionDataset):
     
     def get_image_data(self, index: int) -> Any:
         """Return S3 paths and client for decoder."""
-        return (self.fields[index], self.s3_client, self.channel_mode, True)
+        return {'s3_paths': self.fields[index], 's3_client': self.s3_client, 'channel_mode': self.channel_mode, 'apply_clahe': True}
     
     def get_target(self, index: int) -> Any:
         """Return dummy target."""
