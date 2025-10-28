@@ -1,0 +1,206 @@
+# DINOv3 ViT-Small Patch-8 Continued Pretraining on JUMP Cell Painting
+# =========================================================================
+#
+# This config continues training ViT-S from the pretrained checkpoint on
+# ~3M JUMP Cell Painting images with patch size 8 for higher resolution.
+#
+# Hardware: Single A100 GPU (80GB)
+# Time: 24-48 hours
+# Expected iterations: ~50k-80k (with batch size 32-64)
+#
+# Based on recommendations from DINOv3 GitHub issues:
+# - Start from pretrained checkpoint (student.pretrained_weights)
+# - Use 1/10 of original LR (5e-5 instead of 5e-4)
+# - Disable Gram loss (not needed for distilled models)
+# - Use bf16 (not fp16 to avoid NaN)
+# - Shorter training (50-100 epochs)
+
+MODEL:
+  META_ARCHITECTURE: SSLMetaArch
+  DEVICE: cuda
+  WEIGHTS: ''
+  DTYPE: float32
+
+compute_precision:
+  param_dtype: bf16  # Use bf16 to avoid NaN issues
+  reduce_dtype: fp32
+  sharding_strategy: SHARD_GRAD_OP
+
+# DINO loss configuration
+dino:
+  loss_weight: 1.0
+  global_ignore_diagonal: true
+  head_n_prototypes: 65536  # Standard for ViT-S
+  head_bottleneck_dim: 256
+  head_norm_last_layer: false
+  head_nlayers: 3
+  head_hidden_dim: 2048
+  koleo_loss_weight: 0.1
+  koleo_loss_distributed: false
+  koleo_topk: 1
+  koleo_distributed_replicas: 0
+  koleo_distributed_loss_group_size: null
+  koleo_distributed_loss_group_data: true
+  force_weight_norm: false
+  reweight_dino_local_loss: false
+  local_loss_weight_schedule:
+    start: 0.5
+    peak: 0.5
+    end: 0.5
+    warmup_epochs: 0
+
+# iBOT loss configuration
+ibot:
+  loss_weight: 1.0
+  mask_sample_probability: 0.5
+  mask_ratio_min_max:
+    - 0.1
+    - 0.5
+  mask_random_circular_shift: false
+  force_masking_even_with_zero_weight: false
+  separate_head: true
+  head_n_prototypes: 65536
+  head_bottleneck_dim: 256
+  head_norm_last_layer: false
+  head_nlayers: 3
+  head_hidden_dim: 2048
+
+# Gram loss - DISABLED for continued training on distilled model
+gram:
+  use_loss: false
+  compute_stats: false
+
+# Training configuration
+train:
+  batch_size_per_gpu: 48  # Adjust based on memory (32-64 range for p8)
+  dataset_path: JUMPCellPainting:root=../../2024_Chandrasekaran_NatureMethods_CPJUMP1
+  output_dir: ../../DINOCell/checkpoints/dinov3_vits8_jump_pretrained
+  saveckp_freq: 20
+  seed: 42
+  num_workers: 8  # Adjust based on CPU
+  OFFICIAL_EPOCH_LENGTH: 1000  # ~3M images / batch_size / num_gpus
+  monitor_gradient_norm: false
+  chunk_schedule: []
+  cache_dataset: false  # Set true if you have enough RAM
+  use_teacher_head: true
+  learn_from_teacher_tokens: false
+  centering: sinkhorn_knopp
+  checkpointing: false  # Disable activation checkpointing for single GPU
+  compile: true
+  cudagraphs: false
+
+# Student model configuration
+student:
+  arch: vit_small
+  patch_size: 8  # IMPORTANT: Changed from 16 to 8 for higher resolution
+  drop_path_rate: 0.1  # Lower for continued training (was 0.3 from scratch)
+  layerscale: 1.0e-05
+  pretrained_weights: '../../../dinov3/checkpoints/dinov3_vits16_pretrain_lvd1689m-08c60483.pth'  # Load pretrained ViT-S
+  ffn_layer: mlp
+  ffn_ratio: 4.0
+  resume_from_teacher_chkpt: ''  # Leave empty - not used for continued training
+  qkv_bias: true  # Can set to false if you get NaN issues
+  proj_bias: true
+  ffn_bias: true
+  norm_layer: layernorm
+  n_storage_tokens: 4  # Register tokens (same as pretrained)
+  mask_k_bias: true
+  in_chans: 3
+  pos_embed_type: rope
+  pos_embed_rope_base: 100.0
+  pos_embed_rope_min_period: null
+  pos_embed_rope_max_period: null
+  pos_embed_rope_normalize_coords: separate
+  pos_embed_rope_shift_coords: null
+  pos_embed_rope_jitter_coords: null
+  pos_embed_rope_rescale_coords: null
+  pos_embed_rope_dtype: bf16
+  fp8_enabled: False
+
+# Teacher (EMA) configuration
+teacher:
+  momentum_teacher: 0.996  # Slightly higher for continued training
+  final_momentum_teacher: 1.0
+  warmup_teacher_temp: 0.04
+  teacher_temp: 0.07
+  warmup_teacher_temp_epochs: 10  # Shorter warmup for continued training
+  in_chans: 3
+
+# Distillation - disabled (not using distillation)
+distillation:
+  enabled: false
+  full_cfg_path: ''
+  checkpoint_path: ''
+
+# Multi-distillation - disabled
+multidistillation:
+  enabled: false
+
+# High-res fine-tuning - disabled
+hrft:
+  enabled: false
+  checkpoint_path: ''
+
+# Optimizer configuration - CRITICAL FOR CONTINUED TRAINING
+optim:
+  epochs: 80  # Shorter than from-scratch (was 100)
+  optimizer: adamw
+  weight_decay: 0.04
+  weight_decay_end: 0.2
+  lr: 5.0e-5  # 1/10 of original (was 5e-4) - KEY FOR CONTINUED TRAINING
+  warmup_epochs: 10  # Shorter warmup (was 30 from scratch)
+  min_lr: 1.0e-06
+  schedule_trunc_extra: 0.0
+  clip_grad: 3.0
+  freeze_last_layer_epochs: 1
+  scaling_rule: sqrt_wrt_1024
+  patch_embed_lr_mult: 0.2
+  dino_head_wd_multiplier: 1.0
+  layerwise_decay: 0.9
+  multi_tensor_optim: true
+  dump_fsdp_weights_path: ''
+  adamw_beta1: 0.9
+  adamw_beta2: 0.999
+
+# Data augmentation - adapted for cell images
+crops:
+  global_crops_scale:
+    - 0.4   # Slightly larger min scale for cells
+    - 1.0
+  local_crops_number: 8
+  local_crops_scale:
+    - 0.05
+    - 0.4
+  global_crops_size: 224  # Standard size (28x28 patches with p8)
+  local_crops_size: 96   # Smaller local crops (12x12 patches with p8)
+  global_local_crop_pairs_ratios: 1.0
+  gram_teacher_crops_size: null  # No Gram loss
+  localcrops_subset_of_globalcrops: false
+  share_color_jitter: false
+  horizontal_flips: true
+  gram_teacher_no_distortions: false
+  # Standard ImageNet normalization (works for cells after CLAHE)
+  rgb_mean:
+    - 0.485
+    - 0.456
+    - 0.406
+  rgb_std:
+    - 0.229
+    - 0.224
+    - 0.225
+
+# Evaluation configuration
+evaluation:
+  eval_period_iterations: 5000  # Evaluate every 5k iterations
+  low_freq_every: 5
+  config_files:
+    high_freq: benchmark_high_frequency.yaml
+    low_freq: benchmark_low_frequency.yaml
+
+# Checkpointing
+checkpointing:
+  period: 2500  # Save every 2500 iterations (~2.5 hours on A100)
+  max_to_keep: 3  # Keep last 3 checkpoints to save space
+  keep_every: 99999999999999999  # No permanent checkpoints (save space)
+
+

@@ -1,0 +1,207 @@
+# DINOv3 ViT-Small Patch-8 Multi-View Training on JUMP Cell Painting
+# ======================================================================
+#
+# MULTI-VIEW CONSISTENCY LEARNING
+#
+# This config uses an advanced multi-view strategy where different channels
+# are treated as different views of the same cell:
+#
+# Global Crop 1: Average of all 5 fluorescent channels
+# Global Crop 2: Random single channel (ch1, ch2, ch3, ch4, or ch5)
+# Local Crops: Random channels
+#
+# DINO loss enforces: features(avg_channels) ≈ features(single_channel)
+#
+# BENEFIT: Model learns "this is the same cell regardless of which channel"
+# This creates channel-invariant representations!
+#
+# Hardware: Single A100 GPU (80GB)
+# Time: 30-40 hours (slightly longer than averaging due to complexity)
+# Expected: Better channel generalization than simple averaging
+# ======================================================================
+
+MODEL:
+  META_ARCHITECTURE: SSLMetaArch
+  DEVICE: cuda
+  WEIGHTS: ''
+  DTYPE: float32
+
+compute_precision:
+  param_dtype: bf16  # Use bf16 to avoid NaN
+  reduce_dtype: fp32
+  sharding_strategy: SHARD_GRAD_OP
+
+# DINO loss configuration
+dino:
+  loss_weight: 1.0
+  global_ignore_diagonal: true
+  head_n_prototypes: 65536
+  head_bottleneck_dim: 256
+  head_norm_last_layer: false
+  head_nlayers: 3
+  head_hidden_dim: 2048
+  koleo_loss_weight: 0.1
+  koleo_loss_distributed: false
+  koleo_topk: 1
+  koleo_distributed_replicas: 0
+  koleo_distributed_loss_group_size: null
+  koleo_distributed_loss_group_data: true
+  force_weight_norm: false
+  reweight_dino_local_loss: false
+
+# iBOT loss configuration
+ibot:
+  loss_weight: 1.0
+  mask_sample_probability: 0.5
+  mask_ratio_min_max:
+    - 0.1
+    - 0.5
+  mask_random_circular_shift: false
+  force_masking_even_with_zero_weight: false
+  separate_head: true
+  head_n_prototypes: 65536
+  head_bottleneck_dim: 256
+  head_norm_last_layer: false
+  head_nlayers: 3
+  head_hidden_dim: 2048
+
+# Gram loss - DISABLED
+gram:
+  use_loss: false
+  compute_stats: false
+
+# Training configuration
+train:
+  batch_size_per_gpu: 40  # Slightly lower due to multi-view complexity
+  dataset_path: JUMPCellPaintingMultiView:root=../../2024_Chandrasekaran_NatureMethods_CPJUMP1
+  output_dir: ../../DINOCell/checkpoints/dinov3_vits8_jump_multiview
+  saveckp_freq: 20
+  seed: 42
+  num_workers: 8
+  OFFICIAL_EPOCH_LENGTH: 1000
+  monitor_gradient_norm: false
+  chunk_schedule: []
+  cache_dataset: false
+  use_teacher_head: true
+  learn_from_teacher_tokens: false
+  centering: sinkhorn_knopp
+  checkpointing: false
+  compile: true
+  cudagraphs: false
+  # IMPORTANT: Use multi-channel augmentation
+  use_multichannel_augmentation: true
+
+# Student model configuration
+student:
+  arch: vit_small
+  patch_size: 8  # Higher resolution than standard 16
+  drop_path_rate: 0.1
+  layerscale: 1.0e-05
+  pretrained_weights: '../../../dinov3/checkpoints/dinov3_vits16_pretrain_lvd1689m-08c60483.pth'
+  ffn_layer: mlp
+  ffn_ratio: 4.0
+  resume_from_teacher_chkpt: ''
+  qkv_bias: true  # Set to false if you get NaN
+  proj_bias: true
+  ffn_bias: true
+  norm_layer: layernorm
+  n_storage_tokens: 4
+  mask_k_bias: true
+  in_chans: 3
+  pos_embed_type: rope
+  pos_embed_rope_base: 100.0
+  pos_embed_rope_min_period: null
+  pos_embed_rope_max_period: null
+  pos_embed_rope_normalize_coords: separate
+  pos_embed_rope_shift_coords: null
+  pos_embed_rope_jitter_coords: null
+  pos_embed_rope_rescale_coords: null
+  pos_embed_rope_dtype: bf16
+  fp8_enabled: False
+
+# Teacher configuration
+teacher:
+  momentum_teacher: 0.996
+  final_momentum_teacher: 1.0
+  warmup_teacher_temp: 0.04
+  teacher_temp: 0.07
+  warmup_teacher_temp_epochs: 10
+  in_chans: 3
+
+distillation:
+  enabled: false
+  full_cfg_path: ''
+  checkpoint_path: ''
+
+multidistillation:
+  enabled: false
+
+hrft:
+  enabled: false
+  checkpoint_path: ''
+
+# Optimizer - CRITICAL FOR CONTINUED TRAINING
+optim:
+  epochs: 90  # Slightly longer for multi-view learning
+  optimizer: adamw
+  weight_decay: 0.04
+  weight_decay_end: 0.2
+  lr: 5.0e-5  # 1/10 of original - KEY for continued training!
+  warmup_epochs: 10
+  min_lr: 1.0e-06
+  schedule_trunc_extra: 0.0
+  clip_grad: 3.0
+  freeze_last_layer_epochs: 1
+  scaling_rule: sqrt_wrt_1024
+  patch_embed_lr_mult: 0.2
+  dino_head_wd_multiplier: 1.0
+  layerwise_decay: 0.9
+  multi_tensor_optim: true
+  dump_fsdp_weights_path: ''
+  adamw_beta1: 0.9
+  adamw_beta2: 0.999
+
+# Data augmentation - MULTI-CHANNEL SPECIFIC
+crops:
+  global_crops_scale:
+    - 0.4   # Larger minimum for cells
+    - 1.0
+  local_crops_number: 8
+  local_crops_scale:
+    - 0.05
+    - 0.4
+  global_crops_size: 224  # 28x28 patches with p8
+  local_crops_size: 96   # 12x12 patches with p8
+  global_local_crop_pairs_ratios: 1.0
+  gram_teacher_crops_size: null
+  localcrops_subset_of_globalcrops: false
+  share_color_jitter: false
+  horizontal_flips: true
+  gram_teacher_no_distortions: false
+  # Multi-channel specific parameters
+  num_channels: 5  # Number of fluorescent channels
+  channel_selection_mode: random  # How to select channels for crops
+  # Standard ImageNet normalization
+  rgb_mean:
+    - 0.485
+    - 0.456
+    - 0.406
+  rgb_std:
+    - 0.229
+    - 0.224
+    - 0.225
+
+# Evaluation
+evaluation:
+  eval_period_iterations: 5000
+  low_freq_every: 5
+  config_files:
+    high_freq: benchmark_high_frequency.yaml
+    low_freq: benchmark_low_frequency.yaml
+
+# Checkpointing
+checkpointing:
+  period: 2500  # Save every ~2.5 hours
+  max_to_keep: 3
+  keep_every: 99999999999999999
+
