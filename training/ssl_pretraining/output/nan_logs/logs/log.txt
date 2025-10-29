@@ -1,8 +1,0 @@
-D20251028 19:10:38 23396 nan_logger __init__.py:132] PyTorch distributed environment: manual job using 127.0.0.1:50245 (rank=0, world size=1)
-D20251028 19:11:11 23735 nan_logger __init__.py:132] PyTorch distributed environment: manual job using 127.0.0.1:53185 (rank=0, world size=1)
-D20251028 19:13:07 24400 nan_logger __init__.py:132] PyTorch distributed environment: manual job using 127.0.0.1:46385 (rank=0, world size=1)
-D20251028 19:25:36 27345 nan_logger __init__.py:132] PyTorch distributed environment: manual job using 127.0.0.1:59523 (rank=0, world size=1)
-D20251028 19:36:57 30579 nan_logger __init__.py:132] PyTorch distributed environment: manual job using 127.0.0.1:40439 (rank=0, world size=1)
-D20251028 19:50:37 34802 nan_logger __init__.py:132] PyTorch distributed environment: manual job using 127.0.0.1:54343 (rank=0, world size=1)
-D20251028 20:06:42 39678 nan_logger __init__.py:132] PyTorch distributed environment: manual job using 127.0.0.1:59165 (rank=0, world size=1)
-D20251028 20:25:01 45055 nan_logger __init__.py:132] PyTorch distributed environment: manual job using 127.0.0.1:41495 (rank=0, world size=1)

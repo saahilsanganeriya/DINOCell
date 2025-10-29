@@ -38,15 +38,23 @@ ENV/
 *.ipynb
 
 # Data and checkpoints
-checkpoints/*.pt
-checkpoints/*.pth
+checkpoints/
+*.pt
+*.pth
 *.npy
 *.tif
 *.tiff
 
+# Training outputs
+output/
+test_output/
+**/output/
+**/test_output/
+
 # Logs and results
 *.log
 wandb/
+wandb_cache/
 results/
 eval_*/
 
