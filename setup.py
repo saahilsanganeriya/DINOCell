@@ -19,7 +19,7 @@ with open('requirements.txt') as f:
 setup(
     name="dinocell",
     version="0.1.0",
-    author="DINOCell Team",
+    author="Saahil Sanganeriya",
     description="Cell segmentation using DINOv3 with SSL pretraining",
     long_description=long_description,
     long_description_content_type="text/markdown",

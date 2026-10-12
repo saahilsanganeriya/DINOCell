@@ -1,215 +1,141 @@
-# DINOCell: Cell Segmentation with DINOv3
+# DINOCell
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+DINOCell is an unfinished experiment in label-free cell segmentation: outlining every cell in a
+microscopy image without anyone clicking on the cells. It keeps the method from
+[SAMCell](https://doi.org/10.1371/journal.pone.0319532) (PLOS ONE, 2025): predict a distance map
+that is high at each cell's centre and falls to zero at its edge, then split touching cells with a
+watershed. It swaps SAMCell's Segment Anything backbone for Meta's [DINOv3](https://github.com/facebookresearch/dinov3),
+and sets up DINOv3's self-supervised training to continue on JUMP Cell Painting microscopy images.
 
-**DINOCell** is a state-of-the-art deep learning framework for automated cell segmentation in microscopy images. Built on Meta's DINOv3 Vision Transformer, DINOCell combines powerful self-supervised pretraining with a distance map regression approach for accurate cell instance segmentation.
+Saahil Sanganeriya built it alone in October 2025, after co-authoring SAMCell. DINOv3's code is
+Meta's and is included under its own licence (see [Credits and licences](#credits-and-licences)).
 
-## 🌟 Key Features
+## Status
 
-- **DINOv3 Backbone**: Leverages DINOv3's powerful vision transformer pretrained on 1.7B images
-- **Distance Map Regression**: Predicts Euclidean distance maps for cell centers
-- **Watershed Post-processing**: Robust cell instance segmentation
-- **Multi-Channel SSL Pretraining**: Advanced multi-view consistency learning for microscopy
-- **AWS S3 Streaming**: Train on massive datasets without local storage
-- **Wandb Integration**: Comprehensive training monitoring and visualization
+| Part | State | Evidence |
+|---|---|---|
+| Self-supervised pretraining on JUMP (loaders, channel views, S3 reading, W&B logging) | Written; one run was started, and no finished run is recorded | The last status note in the history records iteration ~220 of 90,000 on 2025-10-28: `git show 8e09a3f:ALL_SYSTEMS_GO.md` |
+| Segmentation model in `dinocell/` | Does not run: the decoder fails its first forward pass | `UpConvBlock` in `dinocell/model.py` concatenates the skip connection, doubling the channels, but its first convolution expects the un-doubled count (`RuntimeError: ... expected input[1, 256, 28, 28] to have 128 channels, but got 256`) |
+| Fine-tuning, evaluation, CLI | Do not run, since they build the model above | same |
+| Results | None | No checkpoint and no segmentation score is published, so this repository makes no accuracy claim |
 
-## 📁 Repository Structure
-
-```
-DINOCell/
-├── dinocell/                      # Main DINOCell package
-│   ├── model.py                  # DINOCell architecture (DINOv3 + U-Net)
-│   ├── pipeline.py               # Inference pipeline with sliding window
-│   ├── preprocessing.py          # Image preprocessing utilities
-│   ├── dataset.py                # PyTorch dataset classes
-│   ├── slidingWindow.py          # Sliding window helper
-│   └── cli.py                    # Command-line interface
-│
-├── dinov3_modified/              # Modified DINOv3 with JUMP dataset support
-│   └── dinov3/
-│       ├── data/datasets/
-│       │   ├── jump_cellpainting.py        # JUMP dataset loader
-│       │   ├── jump_cellpainting_multiview.py  # Multi-view learning
-│       │   └── jump_cellpainting_s3.py     # S3 streaming
-│       └── logging/
-│           └── wandb_logger.py              # Wandb integration
-│
-├── training/                      # Training scripts
-│   ├── ssl_pretraining/          # Self-supervised pretraining
-│   │   ├── configs/             # Pretraining configs
-│   │   ├── launch_ssl_with_s3_wandb.sh  # Main launch script
-│   │   └── validate_channel_consistency.py
-│   └── finetune/                # DINOCell fine-tuning
-│       ├── train.py             # Training script
-│       └── train_with_config.py
-│
-├── evaluation/                    # Evaluation scripts
-│   ├── evaluate.py               # Cell Tracking Challenge metrics
-│   └── evaluation_utils.py
-│
-├── dataset_processing/            # Dataset processing utilities
-│   ├── process_dataset.py        # Convert datasets to DINOCell format
-│   └── dataset_utils.py
-│
-├── examples/                      # Example scripts
-│   ├── simple_inference.py
-│   └── compare_with_samcell.py
-│
-└── docs/                          # Documentation
-    ├── GETTING_STARTED.md
-    ├── SSL_PRETRAINING.md        # SSL pretraining guide
-    ├── S3_STREAMING.md           # AWS S3 streaming guide
-    └── ARCHITECTURE.md
+## How it works
 
 ```
+microscope image (grayscale)
+   │  CLAHE contrast enhancement
+   ▼
+256×256 tiles, 32 px overlap
+   │
+   ▼
+DINOv3 ViT backbone ──► features from 4 intermediate layers
+   │
+   ▼
+U-Net style decoder ──► distance map per tile
+   │  tiles blended back together
+   ▼
+watershed: seeds where the map is above 0.47, cell pixels where it is above 0.09
+   │
+   ▼
+one integer label per cell
+```
 
-## 🚀 Quick Start
+The backbone can be Meta's released weights or weights continued on microscopy images. For that
+second step, each JUMP field of view is imaged in five fluorescent channels that show the same
+cells. Pretraining builds DINO's views from different channels (one view averages the channels,
+another uses a single random channel), so the DINO loss pushes the backbone toward the same features
+whichever channel it sees. [docs/SSL_PRETRAINING.md](docs/SSL_PRETRAINING.md) has the details.
 
-### Installation
+## Repository layout
+
+```
+dinocell/              model (DINOv3 backbone + U-Net decoder), inference pipeline, CLI
+training/finetune/     fine-tuning script for the segmentation model
+training/ssl_pretraining/
+                       launch scripts and configs for pretraining on JUMP
+evaluation/            Cell Tracking Challenge metrics (SEG, DET, OP_CSB) and threshold search
+dataset_processing/    converts LIVECell, Cellpose and custom datasets to the training format
+examples/              inference and SAMCell comparison scripts
+dinov3_modified/       Meta's DINOv3 with the JUMP additions (DINOv3 License)
+docs/                  architecture, datasets, pretraining, S3 reading, fine-tuning
+```
+
+## Setup
+
+Python 3.11.
 
 ```bash
-# Clone repository
-git clone <your-repo-url>
+git clone https://github.com/saahilsanganeriya/DINOCell.git
 cd DINOCell
-
-# Install dependencies
-pip install -r requirements.txt
-pip install -e .
+conda env create -f environment.yml && conda activate dinocell
+# or, in any Python 3.11 environment:
+pip install -r requirements.txt && pip install -e .
 ```
 
-### Basic Usage
+DINOv3 weights are not in this repository. Request access through the
+[DINOv3 repository](https://github.com/facebookresearch/dinov3); Meta e-mails the download URLs.
 
-```python
-import cv2
-from dinocell import create_dinocell_model, DINOCellPipeline
+## Pretraining on JUMP Cell Painting
 
-# Load image
-image = cv2.imread('cells.png', cv2.IMREAD_GRAYSCALE)
-
-# Create model and pipeline
-model = create_dinocell_model('small', freeze_backbone=True, pretrained=True)
-pipeline = DINOCellPipeline(model, device='cuda')
-
-# Segment cells
-labels = pipeline.run(image)
-print(f"Found {len(np.unique(labels))-1} cells!")
-```
-
-## 📚 Documentation
-
-- **[Getting Started](docs/GETTING_STARTED.md)** - Complete installation and setup guide
-- **[SSL Pretraining](docs/SSL_PRETRAINING.md)** - Self-supervised pretraining on JUMP dataset
-- **[S3 Streaming](docs/S3_STREAMING.md)** - Train without downloading massive datasets
-- **[Architecture](docs/ARCHITECTURE.md)** - Technical details of DINOCell
-- **[Training Guide](docs/TRAINING_GUIDE.md)** - Fine-tuning DINOCell on cell datasets
-
-## 🔬 Self-Supervised Pretraining
-
-DINOCell supports advanced SSL pretraining with multi-view consistency learning:
+Put `dinov3_vits16_pretrain_lvd1689m-08c60483.pth` in a `dinov3/checkpoints/` folder next to this
+clone (the path in `student.pretrained_weights` of the config), then:
 
 ```bash
 cd training/ssl_pretraining
-./launch_ssl_with_s3_wandb.sh
+./launch_ssl_with_s3_wandb.sh              # reads images from the public cellpainting-gallery S3 bucket
+./launch_ssl_with_s3_wandb.sh --no-wandb   # without Weights & Biases
 ```
 
-This will:
-- ✅ Stream 3M JUMP Cell Painting images from AWS S3 (no local storage needed!)
-- ✅ Learn channel-invariant features across 5 fluorescent channels
-- ✅ Log training metrics and attention maps to Wandb
-- ✅ Train ViT-Small with patch size 8 for high resolution
+No AWS account is needed. The script tries to activate a conda environment named `dinov3`; if
+there is none, it carries on in the active environment. The configuration and the other options are
+in [docs/SSL_PRETRAINING.md](docs/SSL_PRETRAINING.md).
 
-See [`docs/SSL_PRETRAINING.md`](docs/SSL_PRETRAINING.md) for details.
+## Segmentation, fine-tuning and evaluation
 
-## 🎯 Training DINOCell
+These are the intended entry points. They stop at the decoder error described under [Status](#status).
+
+```python
+import cv2
+import numpy as np
+from dinocell import create_dinocell_model, DINOCellPipeline
+
+image = cv2.imread("cells.png", cv2.IMREAD_GRAYSCALE)
+model = create_dinocell_model("small", freeze_backbone=True, pretrained=False)
+model.load_weights("checkpoints/dinocell/best_model.pt")  # a fine-tuned DINOCell checkpoint
+labels = DINOCellPipeline(model, device="cuda").run(image)
+print(len(np.unique(labels)) - 1, "cells")
+```
 
 ```bash
+dinocell segment cells.png --model checkpoints/dinocell/best_model.pt --output results/
+
 cd training/finetune
-python train.py \
-    --dataset ../../datasets/LIVECell-train \
-    --model-size small \
-    --epochs 100 \
-    --freeze-backbone
+python train.py --dataset ../../datasets/LIVECell-train --model-size small --freeze-backbone \
+    --output ../../checkpoints/dinocell
+
+cd ../../evaluation
+python evaluate.py --model ../checkpoints/dinocell/best_model.pt --dataset ../datasets/PBL_HEK
 ```
 
-## 📊 Evaluation
+[docs/DATASETS.md](docs/DATASETS.md) covers getting and converting the datasets;
+[docs/TRAINING_GUIDE.md](docs/TRAINING_GUIDE.md) covers the training options.
 
-```bash
-cd evaluation
-python evaluate.py \
-    --model ../checkpoints/dinocell_best.pt \
-    --dataset ../datasets/PBL_HEK \
-    --cells-max 0.47 \
-    --cell-fill 0.09
-```
+## Credits and licences
 
-## 🔑 Key Innovations
+- **This project's code** (everything outside `dinov3_modified/`): MIT, see [LICENSE](LICENSE).
+- **`dinov3_modified/`**: a copy of Meta's DINOv3 with additions for this project. The whole folder,
+  including the additions, is under the DINOv3 License in
+  [`dinov3_modified/dinov3/LICENSE.md`](dinov3_modified/dinov3/LICENSE.md), not MIT.
+  [`dinov3_modified/MODIFICATIONS.md`](dinov3_modified/MODIFICATIONS.md) lists what was added and changed.
+- **SAMCell**: the distance-map method and the default watershed thresholds come from SAMCell, and
+  `dinocell/slidingWindow.py` is adapted from SAMCell's code (MIT). Its licence notice is in [NOTICE](NOTICE).
+- **Data**: the JUMP Cell Painting images come from the public `cellpainting-gallery` bucket on AWS.
 
-### 1. Multi-View SSL Pretraining
-Instead of simply averaging fluorescent channels, we use multi-view consistency learning:
-- Global view 1: Average of all 5 channels
-- Global view 2: Random single channel
-- DINO loss enforces: same features regardless of channel
-- **Result**: Channel-invariant cell representations!
+## Citation
 
-### 2. AWS S3 Streaming
-Train on 3 million images without downloading:
-- LRU caching (1000 images in memory)
-- Public bucket (no AWS credentials needed)
-- Saves ~500GB local storage
+SAMCell: Generalized label-free biological cell segmentation with segment anything. PLOS ONE 20(9): e0319532 (2025).
+https://doi.org/10.1371/journal.pone.0319532
 
-### 3. Comprehensive Wandb Logging
-- Training metrics (loss, learning rate, etc.)
-- Attention map visualizations
-- Feature PCA plots
-- Gradient statistics
-- Channel consistency validation
-
-## 🗂️ Modified DINOv3
-
-We've extended the official DINOv3 repository with:
-- **JUMP Cell Painting Dataset Loaders** (3 variants: local, multiview, S3 streaming)
-- **Multi-Channel Augmentation** for microscopy images
-- **Wandb Logger** for comprehensive training monitoring
-
-All modifications are in `dinov3_modified/dinov3/`.
-
-## 📦 Dependencies
-
-Core:
-- PyTorch ≥ 2.0
-- DINOv3 (included as `dinov3_modified/`)
-- OpenCV, scikit-image, scipy
-
-Optional:
-- boto3, smart-open (for S3 streaming)
-- wandb (for training monitoring)
-- pycocotools (for LIVECell dataset)
-
-## 🏗️ Architecture
-
-```
-Input Image → CLAHE → Sliding Window (256×256) →
-    DINOv3 Backbone (frozen/trainable) →
-    U-Net Decoder (4 upsampling stages) →
-    Distance Map Head →
-    Watershed Post-processing → Cell Masks
-```
-
-## 📖 Citation
-
-If you use DINOCell, please cite:
-
-```bibtex
-@software{dinocell2025,
-  title={DINOCell: Cell Segmentation with DINOv3},
-  author={},
-  year={2025},
-  url={}
-}
-```
-
-And cite the original DINOv3:
 ```bibtex
 @misc{simeoni2025dinov3,
   title={{DINOv3}},
@@ -219,13 +145,3 @@ And cite the original DINOv3:
   archivePrefix={arXiv},
 }
 ```
-
-## 📄 License
-
-MIT License - see [LICENSE](LICENSE) for details.
-
-DINOv3 components under DINOv3 License - see [dinov3_modified/LICENSE.md](dinov3_modified/LICENSE.md).
-
-## 🤝 Contributing
-
-Contributions welcome! Please see [CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines.

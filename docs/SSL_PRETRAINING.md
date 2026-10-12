@@ -71,7 +71,9 @@ cd training/ssl_pretraining
 
 The script checks the S3 and W&B dependencies, tests that the bucket can be listed, activates a
 conda or micromamba environment named `dinov3` if one of them is installed, and runs
-`dinov3/train/train.py`. Output goes to `training/ssl_pretraining/output/`. The script's own estimate
+`dinov3/train/train.py`. Output goes to `training/ssl_pretraining/output/`. If
+`dinov3_modified/dinov3/checkpoints/` has no weights, the script first tries Meta's public weights URL;
+without access that request is refused, and training still reads the file named in the config. The script's own estimate
 for the full schedule is 30-40 hours on one A100; that is an estimate, not a measured time.
 
 For local files, `dataset_path` in `configs/dinov3_vits8_jump_multiview.yaml` must point at a local
