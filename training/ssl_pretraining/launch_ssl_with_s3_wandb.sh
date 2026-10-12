@@ -128,9 +128,9 @@ if [ "$USE_WANDB" = true ]; then
     echo "✅ Wandb installed"
     
     # Configure wandb to use main filesystem for cache/logs
-    export WANDB_DIR=/home/shadeform/wandb_cache
-    export WANDB_CACHE_DIR=/home/shadeform/wandb_cache
-    export WANDB_DATA_DIR=/home/shadeform/wandb_cache
+    export WANDB_DIR="$HOME/wandb_cache"
+    export WANDB_CACHE_DIR="$HOME/wandb_cache"
+    export WANDB_DATA_DIR="$HOME/wandb_cache"
     mkdir -p $WANDB_DIR
     
     # Set wandb to online mode
@@ -190,8 +190,8 @@ fi
 # Navigate to dinov3
 cd $DINOV3_ROOT
 
-# Create output directory on main filesystem
-OUTPUT_DIR_FULL="/home/shadeform/DINOCell/training/ssl_pretraining/output"
+# Create output directory next to this script
+OUTPUT_DIR_FULL="$SCRIPT_DIR/output"
 mkdir -p "$OUTPUT_DIR_FULL"
 
 # Build wandb override args
