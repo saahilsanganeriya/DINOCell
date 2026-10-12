@@ -1,15 +1,15 @@
 # DINOCell Training Guide
 
-This guide walks you through training DINOCell on cell segmentation datasets.
+This guide describes how DINOCell is meant to be fine-tuned on cell segmentation datasets.
+
+> **Status:** at this commit the DINOCell decoder fails its first forward pass (see the
+> [repository README](../README.md#status)), so `train.py` and `evaluate.py` stop with an error.
+> The commands below are the intended workflow.
 
 ## Prerequisites
 
-1. **DINOv3 Repository**: Ensure DINOv3 is cloned in the parent directory
-```bash
-cd ..
-git clone https://github.com/facebookresearch/dinov3.git
-cd DINOCell
-```
+1. **DINOv3 code**: bundled in `dinov3_modified/dinov3/`; the model loads it from there, so no separate clone is needed.
+   Pretrained DINOv3 weights need access from Meta (see the README).
 
 2. **Environment Setup**:
 ```bash
@@ -47,39 +47,39 @@ python process_dataset.py cellpose \
 ### 2. Train DINOCell
 
 ```bash
-cd ../training
+cd ../training/finetune
 
 # Option A: Freeze backbone (fastest, recommended for getting started)
 python train.py \
-    --dataset ../datasets/LIVECell-train \
+    --dataset ../../datasets/LIVECell-train \
     --model-size small \
     --freeze-backbone \
     --batch-size 8 \
     --epochs 100 \
-    --output ../checkpoints/dinocell-frozen
+    --output ../../checkpoints/dinocell-frozen
 
 # Option B: Fine-tune backbone (slower, potentially better performance)
 python train.py \
-    --dataset ../datasets/LIVECell-train \
+    --dataset ../../datasets/LIVECell-train \
     --model-size small \
     --batch-size 4 \
     --epochs 100 \
-    --output ../checkpoints/dinocell-finetuned
+    --output ../../checkpoints/dinocell-finetuned
 
 # Option C: Multi-dataset generalist model
 python train.py \
-    --dataset ../datasets/LIVECell-train ../datasets/Cellpose-train \
+    --dataset ../../datasets/LIVECell-train ../../datasets/Cellpose-train \
     --model-size base \
     --freeze-backbone \
     --batch-size 4 \
     --epochs 100 \
-    --output ../checkpoints/dinocell-generalist
+    --output ../../checkpoints/dinocell-generalist
 ```
 
 ### 3. Evaluate Your Model
 
 ```bash
-cd ../evaluation
+cd ../../evaluation
 
 # Evaluate on test dataset
 python evaluate.py \
@@ -130,72 +130,64 @@ python evaluate.py \
 - Transfer learning from pretrained DINOv3
 
 **Advantages**:
-- Faster training (2-3x speedup)
+- Faster training (only the decoder is updated)
 - Lower memory requirements
-- Good performance leveraging pretrained features
+- Uses the pretrained features as they are
 
 **Command**:
 ```bash
-python train.py --dataset ../datasets/LIVECell-train \
+python train.py --dataset ../../datasets/LIVECell-train \
                --model-size small --freeze-backbone \
                --batch-size 8 --epochs 100
 ```
 
-**Expected Training Time**: ~2-3 hours on A100 GPU
 
 ### Strategy 2: End-to-End Fine-Tuning
 
 **When to use**:
-- Maximum performance needed
-- Sufficient GPU memory (≥24GB VRAM)
+- The frozen features are not enough
+- More GPU memory is available
 - Domain-specific fine-tuning
 
 **Advantages**:
-- Best performance
-- Adapts features specifically for cells
+- Adapts the backbone features to cells
 
 **Command**:
 ```bash
-python train.py --dataset ../datasets/LIVECell-train \
+python train.py --dataset ../../datasets/LIVECell-train \
                --model-size small \
                --batch-size 4 --epochs 100
 ```
 
-**Expected Training Time**: ~5-6 hours on A100 GPU
 
 ### Strategy 3: Multi-Dataset Generalist
 
 **When to use**:
 - Building a generalist model
-- Maximizing zero-shot performance
+- Aiming for zero-shot use on new datasets
 - Multiple dataset sources available
 
 **Advantages**:
-- Best cross-dataset generalization
-- Robust to dataset variations
+- Sees more imaging conditions during training
 
 **Command**:
 ```bash
-python train.py --dataset ../datasets/LIVECell-train ../datasets/Cellpose-train \
+python train.py --dataset ../../datasets/LIVECell-train ../../datasets/Cellpose-train \
                --model-size base --freeze-backbone \
                --batch-size 4 --epochs 100
 ```
 
-**Expected Training Time**: ~4-5 hours on A100 GPU
 
 ## Model Sizes
 
-| Size | Backbone | Parameters | VRAM (frozen) | VRAM (fine-tune) | Speed |
-|------|----------|------------|---------------|------------------|-------|
-| Small | ViT-S/16 | 21M | ~6GB | ~12GB | Fast |
-| Base | ViT-B/16 | 86M | ~10GB | ~20GB | Medium |
-| Large | ViT-L/16 | 300M | ~20GB | ~40GB | Slow |
-| 7B | ViT-7B/16 | 6.7B | ~80GB | N/A | Very Slow |
+| Size | Backbone | Parameters |
+|------|----------|------------|
+| Small | ViT-S/16 | 21M |
+| Base | ViT-B/16 | 86M |
+| Large | ViT-L/16 | 300M |
+| 7B | ViT-7B/16 | 6.7B |
 
-**Recommendations**:
-- **For most users**: `small` with frozen backbone
-- **For best performance**: `base` with frozen backbone
-- **For research**: `large` or fine-tuned models
+Memory use and speed per size were not measured, and the sizes were not compared on accuracy.
 
 ## Hyperparameters
 
@@ -277,7 +269,7 @@ pip install wandb
 wandb login
 
 # Train with logging
-python train.py --dataset ../datasets/LIVECell-train \
+python train.py --dataset ../../datasets/LIVECell-train \
                --model-size small --freeze-backbone \
                --use-wandb --wandb-project dinocell
 ```
@@ -326,7 +318,7 @@ After training:
 3. **Compare** with SAMCell and other baselines
 4. **Deploy** in your microscopy workflow
 
-See `README.md` for usage examples and API documentation.
+See the [repository README](../README.md) for usage examples.
 
 
 

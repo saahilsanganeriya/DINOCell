@@ -1,16 +1,15 @@
 # AWS S3 Streaming for JUMP Dataset
 
-Stream 3 million JUMP Cell Painting images directly from AWS S3 without local storage!
+Pretraining can read JUMP Cell Painting images straight from the public `cellpainting-gallery` S3 bucket, so the dataset does not have to be downloaded first.
 
-## 🎯 Benefits
+## Benefits
 
-- ✅ **No 500GB download** - Stream images on-demand
-- ✅ **Start immediately** - No waiting for downloads
-- ✅ **LRU caching** - Keeps 1000 recent images in RAM
-- ✅ **Free access** - Public S3 bucket, no credentials needed
-- ✅ **Bandwidth efficient** - Only downloads what's needed
+- **No full download**: images are fetched when the data loader asks for them
+- **LRU cache**: the 1000 most recently used images stay in RAM
+- **No credentials**: the bucket is public and is read with unsigned requests
+- **Only what is read**: images the run never touches are never fetched
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -43,9 +42,9 @@ for obj in response.get('Contents', [])[:3]:
 "
 ```
 
-If this works, you're ready to stream!
+If this lists files, streaming will work.
 
-## 📝 Usage
+## Usage
 
 ### Option 1: Launch Script (Recommended)
 
@@ -68,15 +67,15 @@ train:
   dataset_path: 'JUMPS3MultiView:bucket=cellpainting-gallery:prefix=cpg0000-jump-pilot/source_4/images'
 ```
 
-Then run:
+Then run, from the repository root:
 ```bash
-cd ../../dinov3_modified
+cd dinov3_modified/dinov3
 PYTHONPATH=. python dinov3/train/train.py \
-    --config-file ../training/ssl_pretraining/configs/dinov3_vits8_jump_s3_multiview.yaml \
-    --output-dir ../training/ssl_pretraining/output
+    --config-file ../../training/ssl_pretraining/configs/dinov3_vits8_jump_s3_multiview.yaml \
+    --output-dir ../../training/ssl_pretraining/output
 ```
 
-## 🏗️ How It Works
+## How It Works
 
 ### Architecture
 
@@ -104,10 +103,10 @@ Check LRU cache
 
 ### Cache Strategy
 
-- **Size**: 1000 images (~2GB RAM with CLAHE preprocessing)
-- **Policy**: LRU (Least Recently Used)
-- **Hit rate**: ~60-70% after first epoch
-- **Bandwidth**: ~50-100 MB/s during training
+- **Size**: 1000 images
+- **Policy**: LRU (least recently used)
+
+Hit rate and bandwidth were not measured.
 
 ### S3 Bucket Structure
 
@@ -127,9 +126,8 @@ s3://cellpainting-gallery/cpg0000-jump-pilot/source_4/images/
 └── ... (more batches)
 ```
 
-Total: ~3M fields × 8 channels = ~24M TIFF files
 
-## ⚙️ Advanced Configuration
+## Advanced Configuration
 
 ### Adjust Cache Size
 
@@ -144,10 +142,7 @@ class JUMPS3Dataset(ExtendedVisionDataset):
     ):
 ```
 
-Recommendations:
-- **A100 80GB**: cache_size=1000 (default)
-- **A100 40GB**: cache_size=500  
-- **Smaller GPUs**: cache_size=200
+The cache lives in host RAM, not on the GPU, so size it to the machine's memory.
 
 ### Use Different S3 Bucket
 
@@ -167,7 +162,7 @@ train:
   dataset_path: 'JUMPCellPaintingMultiView:root=/path/to/local/jump'
 ```
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Error: `ModuleNotFoundError: No module named 'boto3'`
 
@@ -195,17 +190,11 @@ aws s3 ls s3://cellpainting-gallery/cpg0000-jump-pilot/source_4/images/ --no-sig
 - Increase cache size if you have RAM
 - Consider downloading a subset locally
 
-## 📊 Performance Comparison
+## Streaming or local files
 
-| Approach | Setup Time | Storage | Training Speed | Flexibility |
-|----------|-----------|---------|----------------|-------------|
-| **Local download** | 12-24 hours | 500GB | Fast (SSD) | Low (fixed dataset) |
-| **S3 streaming** | < 5 minutes | ~2GB (cache) | Medium (~10% slower) | **High (modify anytime)** |
-| **Local subset** | 1-2 hours | 50-100GB | Fast | Medium |
+Streaming trades disk space for network reads: nothing is downloaded up front, but every cache miss is an S3 request. Local files avoid the network once downloaded. The two were not timed against each other in this repository.
 
-**Recommendation**: Use S3 streaming unless you have ultra-fast local storage and lots of space.
-
-## 🎓 How We Implemented S3 Streaming
+## How S3 Streaming Is Implemented
 
 ### 1. Custom Dataset Class
 
@@ -232,7 +221,7 @@ class JUMPS3Dataset(ExtendedVisionDataset):
 
 ### 2. LRU Cache
 
-Simple but effective:
+A dictionary plus an access-order list:
 ```python
 class S3ImageCache:
     def __init__(self, cache_size=1000):
@@ -274,30 +263,13 @@ def _parse_dataset_str(dataset_str: str):
     ...
 ```
 
-## 💡 Tips
-
-1. **First epoch is slower** (~0.9-1.0s/iter) - cache is filling
-2. **Later epochs faster** (~0.6-0.7s/iter) - cache hits
-3. **Monitor cache hit rate** - Should be >60% after first epoch
-4. **Use wandb** - Track bandwidth usage and cache performance
-
-## 🌐 Public Dataset Access
+## Public Dataset Access
 
 The JUMP Cell Painting dataset is publicly available:
 - **Website**: https://jump-cellpainting.broadinstitute.org/
 - **S3 Browser**: https://registry.opendata.aws/cellpainting-gallery/
 - **Paper**: https://www.nature.com/articles/s41592-024-02241-6
 
-No registration or credentials required!
-
-## 🏁 Summary
-
-S3 streaming lets you:
-- Start training in minutes, not hours
-- Save 500GB+ local storage  
-- Maintain flexibility to modify datasets
-- Access public data without downloads
-
-Perfect for researchers with limited local storage or exploring large-scale microscopy datasets!
+No registration or credentials are needed.
 
 

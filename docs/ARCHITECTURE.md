@@ -1,6 +1,9 @@
 # DINOCell Architecture
 
-Detailed technical documentation of DINOCell's architecture and design choices.
+DINOCell's intended architecture and the reasons for its design choices.
+
+> **Status:** at this commit the decoder fails its first forward pass (see the
+> [repository README](../README.md#status)). This page describes the design, not a tested model.
 
 ## Overview
 
@@ -58,9 +61,7 @@ Cell Labels (H×W, int)
 **Advantages over SAM**:
 - Larger pretraining dataset (1.7B images vs 11M)
 - Self-supervised learning objectives (DINO, iBOT, KoLeo)
-- Better dense features for segmentation tasks
-- Proven state-of-the-art on depth/segmentation benchmarks
-- More efficient architecture for dense prediction
+- Strong dense features: the DINOv3 paper reports results on depth and segmentation benchmarks
 
 ### Feature Extraction
 
@@ -211,42 +212,23 @@ Dataset-specific tuning can improve results:
 
 1. **Continuous Values**: Better optimization than binary masks
 2. **Separation**: Natural valleys between touching cells
-3. **Compatibility**: Works perfectly with watershed algorithm
-4. **Proven Approach**: Validated by SAMCell's success
+3. **Compatibility**: The map feeds the watershed step directly
+4. **Prior work**: SAMCell (PLOS ONE 2025) uses the same distance-map target
 
 ### Why Freeze Backbone?
 
 **Advantages**:
-- Faster training (2-3× speedup)
+- Faster training (only the decoder is updated)
 - Lower memory requirements
-- Leverages pretrained features effectively
-- Good performance with limited data
+- Uses the pretrained features as they are
 
 **When to Fine-Tune**:
-- Very large datasets (>10k images)
+- Large datasets
 - Domain is very different from pretraining
-- Maximum performance needed
 
 ## Computational Requirements
 
-### Training (per epoch)
-
-| Config | Model Size | Batch Size | VRAM | Time (A100) |
-|--------|-----------|------------|------|-------------|
-| Frozen | Small | 8 | ~6GB | ~2 min |
-| Frozen | Base | 4 | ~10GB | ~4 min |
-| Frozen | Large | 2 | ~20GB | ~10 min |
-| Fine-tuned | Small | 4 | ~12GB | ~5 min |
-| Fine-tuned | Base | 2 | ~24GB | ~10 min |
-
-### Inference (per image)
-
-| Model Size | Device | 512×512 Image | 2048×2048 Image |
-|-----------|--------|---------------|------------------|
-| Small | RTX 4090 | ~0.5s | ~3s |
-| Small | CPU | ~5s | ~30s |
-| Base | RTX 4090 | ~1s | ~6s |
-| Large | A100 | ~2s | ~12s |
+Not measured. The decoder does not run at this commit, so there are no training or inference timings.
 
 ## Comparison with SAMCell
 

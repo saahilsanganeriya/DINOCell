@@ -1,251 +1,145 @@
-# SSL Pretraining with JUMP Cell Painting Dataset
+# Self-supervised pretraining on JUMP Cell Painting
 
-Complete guide for self-supervised pretraining of DINOv3 on 3 million JUMP Cell Painting images.
+This page explains how DINOCell continues DINOv3's self-supervised training on microscopy images
+from the JUMP Cell Painting pilot (`cpg0000-jump-pilot`), and how to start a run.
 
-## 🎯 Overview
+No run in this repository reached the end of its schedule, so it has no measured loss curves,
+checkpoints or channel-consistency numbers.
 
-This guide covers advanced SSL pretraining with:
-- **Multi-view consistency learning** across 5 fluorescent channels
-- **AWS S3 streaming** (no local storage needed)
-- **Wandb monitoring** with attention maps and metrics
-- **Patch size 8** for higher resolution
+## What the run does
 
-## 🚀 Quick Start
+It starts from Meta's DINOv3 ViT-S/16 weights, switches the student to patch size 8 for finer
+detail on small cells, and trains with the DINO, iBOT and KoLeo losses that DINOv3 already uses.
+All of the training code is DINOv3's; the files this project added or changed are listed in
+[`dinov3_modified/MODIFICATIONS.md`](../dinov3_modified/MODIFICATIONS.md).
+
+### Multi-view consistency across channels
+
+Each JUMP field of view is imaged in several fluorescent channels that show the same cells.
+Instead of only averaging the channels into one image, the multi-channel augmentation
+(`dinov3/data/augmentations_multichannel.py`) builds the DINO views from different channels:
+
+```
+one field of view (5 fluorescent channels)
+        │
+        ├── global crop 1: average of the channels
+        ├── global crop 2: one channel picked at random
+        └── local crops:   channels picked at random
+                │
+                ▼
+DINO loss pulls the features of these views together,
+so the backbone is pushed toward the same features whichever channel it sees
+```
+
+`use_multichannel_augmentation: true` in the config turns this on
+(`dinov3/train/ssl_meta_arch.py` picks the augmentation).
+
+### Reading images from S3
+
+With the S3 config, images are read on demand from the public `cellpainting-gallery` bucket with
+unsigned requests, so no AWS account or download is needed. An LRU cache keeps the 1000 most recent
+images in RAM. Details: [S3_STREAMING.md](S3_STREAMING.md).
+
+### Weights & Biases logging
+
+`dinov3/train/train.py` creates a `WandbLogger` when `wandb.enabled` is true. It logs the training
+losses, learning rate, weight decay and teacher temperature every `log_interval` iterations (1 in the
+S3 config) and attention maps every `attention_log_interval` iterations (100).
+
+## Before you start
+
+1. Install the dependencies from the repository root: `pip install -r requirements.txt`.
+2. Get DINOv3 weights from Meta. Access is by request through the
+   [DINOv3 repository](https://github.com/facebookresearch/dinov3); Meta e-mails the download URLs.
+3. Put `dinov3_vits16_pretrain_lvd1689m-08c60483.pth` where the config looks for it.
+   `student.pretrained_weights` is `../../../dinov3/checkpoints/dinov3_vits16_pretrain_lvd1689m-08c60483.pth`,
+   resolved from `dinov3_modified/dinov3/` (the training working directory), so that is a
+   `dinov3/checkpoints/` folder next to your DINOCell clone. Edit the config to use another path.
+4. Optional: `wandb login`.
+
+## Start a run
+
+Run the launch script from its own folder; its paths are relative to it.
 
 ```bash
 cd training/ssl_pretraining
-
-# Install S3 and wandb dependencies
-pip install boto3 smart-open wandb
-
-# Login to wandb (optional but recommended)
-wandb login
-
-# Launch pretraining!
-./launch_ssl_with_s3_wandb.sh
+./launch_ssl_with_s3_wandb.sh                    # S3 + multi-view + W&B
+./launch_ssl_with_s3_wandb.sh --no-wandb         # without W&B
+./launch_ssl_with_s3_wandb.sh --no-s3            # local files (configs/dinov3_vits8_jump_multiview.yaml)
+./launch_ssl_with_s3_wandb.sh --wandb-project my-project --wandb-name my-run
 ```
 
-**That's it!** Training will run for 30-40 hours on A100.
+The script checks the S3 and W&B dependencies, tests that the bucket can be listed, activates a
+conda or micromamba environment named `dinov3` if one of them is installed, and runs
+`dinov3/train/train.py`. Output goes to `training/ssl_pretraining/output/`. The script's own estimate
+for the full schedule is 30-40 hours on one A100; that is an estimate, not a measured time.
 
-## 📊 What Happens During Training
+For local files, `dataset_path` in `configs/dinov3_vits8_jump_multiview.yaml` must point at a local
+copy of the CPJUMP1 images.
 
-### Multi-View Consistency Learning
+## Configuration
 
-Your JUMP images have 5 fluorescent channels showing the SAME cells:
-- **Channel 1**: Golgi, Plasma Membrane
-- **Channel 2**: ER, AGP, Mitochondria  
-- **Channel 3**: RNA
-- **Channel 4**: Actin, ER, Mitochondria
-- **Channel 5**: Nuclei (Hoechst)
+Main values in `configs/dinov3_vits8_jump_s3_multiview.yaml`:
 
-**Standard approach**: Average all 5 → train  
-**Our approach**: Teach model "these are the same cells!"
-
-**How it works**:
-1. Global crop 1: Average of all 5 channels
-2. Global crop 2: Random single channel (ch1, ch2, ch3, ch4, or ch5)
-3. DINO loss enforces: `features(averaged) ≈ features(single_channel)`
-4. Result: Model learns channel-invariant representations!
-
-### AWS S3 Streaming
-
-Instead of downloading 500GB of images:
-- Images streamed directly from `s3://cellpainting-gallery`
-- LRU cache keeps 1000 recent images in RAM
-- No AWS credentials needed (public bucket)
-- Start training immediately!
-
-### Wandb Logging
-
-Every 100 iterations:
-- Loss curves (DINO, iBOT, KoLeo)
-- Learning rate schedule
-- Gradient statistics
-
-Every 1000 iterations:
-- Attention map visualizations
-- Feature PCA plots
-- Channel consistency metrics
-
-## 🎛️ Configuration
-
-The config file: `configs/dinov3_vits8_jump_s3_multiview.yaml`
-
-Key settings:
 ```yaml
 student:
-  arch: vit_small          # 21M parameters
-  patch_size: 8            # Higher resolution than standard 16
-  pretrained_weights: '<DINOV3_CHECKPOINT_URL>'  # Continue from pretrained
+  arch: vit_small
+  patch_size: 8
+  pretrained_weights: '../../../dinov3/checkpoints/dinov3_vits16_pretrain_lvd1689m-08c60483.pth'
 
 train:
-  batch_size_per_gpu: 64   # Fits in A100 80GB
-  dataset_path: 'JUMPS3MultiView:bucket=cellpainting-gallery:prefix=...'
-  
+  batch_size_per_gpu: 80
+  dataset_path: JUMPS3MultiView:bucket=cellpainting-gallery:prefix=cpg0000-jump-pilot/source_4/images
+
 optim:
-  epochs: 100
-  lr: 5e-5                  # 1/10 of original (continued training)
-  
+  epochs: 90
+  lr: 5.0e-5          # one tenth of DINOv3's rate, for continued training
+  warmup_epochs: 10
+
 wandb:
   enabled: true
-  project: 'dinocell-ssl-pretraining'
-  log_attention_maps: true
+  log_interval: 1
+  attention_log_interval: 100
 ```
 
-## 📈 Expected Results
+If the GPU runs out of memory, lower `train.batch_size_per_gpu`.
 
-**Timeline** (Single A100 80GB):
-- Iteration 0: ~0.8s/iter
-- After warmup (1k iters): ~0.7s/iter  
-- **Total**: ~30-40 hours for 100 epochs
+## After pretraining
 
-**Metrics**:
-- DINO loss: Starts ~4.5 → Converges ~2.8
-- iBOT loss: Starts ~6.0 → Converges ~4.2
-- KoLeo loss: Should stay ~0.1-0.3 (prevents collapse)
+Check how similar the features are across channels:
 
-**Channel Consistency** (validate with `validate_channel_consistency.py`):
-- Before: ~0.4-0.6 cosine similarity across channels
-- After: ~0.85-0.95 cosine similarity (channel-invariant!)
-
-## 🔍 Monitor Training
-
-Open Wandb dashboard:
-```bash
-# Your run URL will be printed at start, e.g.:
-# https://wandb.ai/your-entity/dinocell-ssl-pretraining/runs/xxx
-```
-
-Watch for:
-1. **Losses decreasing steadily**
-2. **Attention maps sharpening** (focusing on cells)
-3. **Channel consistency improving**
-
-## 🛑 Troubleshooting
-
-### Out of Memory
-
-Reduce batch size in config:
-```yaml
-train:
-  batch_size_per_gpu: 48  # Down from 64
-```
-
-### S3 Connection Issues
-
-Test S3 access:
-```bash
-python -c "
-import boto3
-from botocore import UNSIGNED
-from botocore.config import Config
-s3 = boto3.client('s3', config=Config(signature_version=UNSIGNED))
-response = s3.list_objects_v2(
-    Bucket='cellpainting-gallery',
-    Prefix='cpg0000-jump-pilot/source_4/images/',
-    MaxKeys=10
-)
-print(f'✅ S3 accessible! Found {len(response.get(\"Contents\", []))} objects')
-"
-```
-
-If this fails, fall back to local dataset:
-- Edit config: `dataset_path: 'JUMPCellPaintingMultiView:root=/path/to/local/jump'`
-
-### Wandb Login Issues
-
-Disable wandb:
-```bash
-./launch_ssl_with_s3_wandb.sh --no-wandb
-```
-
-## 📁 Output Structure
-
-```
-training/ssl_pretraining/
-└── output/
-    ├── config.yaml              # Saved config
-    ├── ckpt/                    # Checkpoints
-    │   ├── 10000/              # Every 1k iterations
-    │   ├── 20000/
-    │   └── final/              # Final checkpoint
-    ├── eval/                    # Evaluation checkpoints
-    │   └── 12500/              # Every 12.5k iters
-    └── logs/
-        └── log.txt             # Training logs
-```
-
-## 🔄 Resume Training
-
-Training automatically resumes from the latest checkpoint:
-```bash
-# Just rerun the same command
-./launch_ssl_with_s3_wandb.sh
-```
-
-It will find the latest checkpoint in `output/ckpt/` and continue.
-
-## ✅ After Pretraining
-
-Once complete, you'll have:
-- **Pretrained backbone**: `output/eval/final/teacher_checkpoint.pth`
-- **Wandb run**: Full metrics, plots, and visualizations
-
-Use this checkpoint for DINOCell fine-tuning:
-```bash
-cd ../finetune
-python train.py \
-    --backbone-weights ../ssl_pretraining/output/eval/final/teacher_checkpoint.pth \
-    --dataset ../../datasets/LIVECell-train \
-    --freeze-backbone
-```
-
-## 🧪 Validate Results
-
-Test channel consistency:
 ```bash
 python validate_channel_consistency.py \
-    --model output/eval/final/teacher_checkpoint.pth \
+    --model-multiview output/eval/training_<iteration>/teacher_checkpoint.pth \
     --test-images /path/to/jump/test/fields
 ```
 
-Should show >0.85 cosine similarity across all channel pairs!
+Add `--model-averaging <checkpoint>` to compare against a channel-averaging run.
 
-## 📚 Technical Details
+The teacher checkpoint is meant to become the DINOCell backbone (`training/finetune/train.py
+--backbone-weights <checkpoint>`). That fine-tuning step does not run yet; see the
+[repository README](../README.md#status).
 
-See full technical documentation:
-- [Multi-view implementation](../docs/MULTIVIEW_IMPLEMENTATION.md)
-- [S3 streaming details](../docs/S3_STREAMING.md)
-- [Wandb integration](../docs/WANDB_LOGGING.md)
+## Compared with DINOv3's own pretraining
 
-## 🤝 Comparison with Original DINOv3
+| | DINOv3 release | This project |
+|---|---|---|
+| Data | LVD-1689M, 1.7B web images | JUMP Cell Painting pilot (microscopy) |
+| Start | from scratch | continues from the ViT-S/16 release weights |
+| Patch size | 16 | 8 |
+| Views | colour image augmentations | channel views (above) |
+| Data source | local files | public S3 bucket or local files |
 
-| Aspect | Original DINOv3 | Our Adaptation |
-|--------|----------------|----------------|
-| Dataset | ImageNet-21k (14M) | JUMP Cell Painting (3M) |
-| Images | Natural images (RGB) | Microscopy (5-channel) |
-| Patch size | 14 or 16 | **8** (higher res) |
-| Augmentation | Standard RGB | **Multi-channel consistency** |
-| Storage | Local download required | **S3 streaming** |
-| Logging | Minimal | **Wandb with visualizations** |
-| Time (1 GPU) | N/A (needs 32+ GPUs) | **30-40 hrs on single A100** |
+## Citation
 
-## 🎓 Citation
-
-If you use SSL pretraining, please cite both DINOCell and DINOv3:
+Cite DINOv3 for the backbone and training code:
 
 ```bibtex
-@software{dinocell2025,
-  title={DINOCell: Cell Segmentation with DINOv3},
-  year={2025},
-}
-
 @misc{simeoni2025dinov3,
   title={{DINOv3}},
   author={Siméoni, Oriane and Vo, Huy V. and others},
   year={2025},
   eprint={2508.10104},
+  archivePrefix={arXiv},
 }
 ```
-
-
